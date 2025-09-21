@@ -1,0 +1,3 @@
+[submodule "glodin"]
+	path = glodin
+	url = https://github.com/francisthecat/glodin
