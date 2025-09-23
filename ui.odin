@@ -2,6 +2,7 @@ package ui
 
 import "core:math/ease"
 import "core:fmt"
+import "core:slice"
 import "core:time"
 import glm "core:math/linalg/glsl"
 
@@ -27,8 +28,6 @@ main :: proc() {
 	Quad :: struct {
 		position:      glm.vec2,
 		size:          glm.vec2,
-		tex_rect:      glm.vec4,
-		color:         glm.vec4,
 		position_prev: glm.vec2,
 		size_prev:     glm.vec2,
 	}
@@ -49,17 +48,35 @@ main :: proc() {
 	quads      := make([]Quad, 1)
 	quads_mesh := glodin.create_instanced_mesh_from_base(quad_mesh, quads)
 
-	for &q in quads {
-		q.color = { 0x62 / 255.999, 0xAE / 255.999, 0xEF / 255.999, 1, }
-	}
+	// { 0x62 / 255.999, 0xAE / 255.999, 0xEF / 255.999, 1, }
 
 	program, program_ok := glodin.create_program_source(#load("vertex.glsl"), #load("fragment.glsl"))
 	assert(program_ok)
 
-	texture, texture_ok := glodin.create_texture_from_file("texture3.png")
-	glodin.set_texture_sampling_state(texture, .Nearest)
-	texture_width, texture_height := glodin.get_texture_dimensions(texture)
-	assert(texture_ok)
+	image, image_err := png.load_from_bytes(#load("texture3.png"))
+	assert(image_err == nil)
+
+	pixels := slice.reinterpret([][3]u8, image.pixels.buf[:])
+
+	for y in 0 ..< 4 {
+		for x in 0 ..< image.width {
+			pixels[x + y                      * image.width] = { 0x62, 0xAE, 0xEF, }
+			pixels[x + (image.height - 1 - y) * image.width] = { 0x62, 0xAE, 0xEF, }
+		}
+	}
+	for y in 0 ..< image.height {
+		for x in 0 ..< 4 {
+			pixels[x +                     y * image.width] = { 0x62, 0xAE, 0xEF, }
+			pixels[(image.width - 1 - x) + y * image.width] = { 0x62, 0xAE, 0xEF, }
+		}
+	}
+
+	texture := glodin.create_texture_with_data(
+		image.width,
+		image.height,
+		pixels,
+		mag_filter = .Nearest,
+	)
 
 	glodin.enable(.Blend)
 
@@ -70,7 +87,18 @@ main :: proc() {
 	smooth  := true
 	samples := 8
 
+	input.set_mouse_mode(.Captured)
+
+	frames_since_print := 0
+	last_fps_print     := time.now()
+
 	for !glfw.WindowShouldClose(window) {
+		frames_since_print += 1
+		for time.since(last_fps_print) > time.Second {
+			glfw.SetWindowTitle(window, fmt.ctprintf("FPS: %d", frames_since_print))
+			last_fps_print     = time.time_add(last_fps_print, time.Second)
+			frames_since_print = 0
+		}
 		glodin.clear_color({}, { 0x1E / 255.999, 0x21 / 255.999, 0x28 / 255.999, 1, })
 
 		current_time := f32(f64(time.since(start_time)) / f64(time.Second))
@@ -118,10 +146,7 @@ main :: proc() {
 
 			q.position = glm.vec2(input.get_mouse_position()) + f32(i) * 40
 			q.size     = input.get_mouse_position().x * 0.2
-			q.size     = {
-				f32(texture_width),
-				f32(texture_height),
-			}
+			q.size     = { f32(image.width), f32(image.height), }
 
 			if !smooth {
 				q.position_prev = q.position
@@ -136,5 +161,7 @@ main :: proc() {
 		input.poll()
 		glfw.SwapBuffers(window)
 		glfw.PollEvents()
+
+		free_all(context.temp_allocator)
 	}
 }
